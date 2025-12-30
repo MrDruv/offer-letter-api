@@ -3,15 +3,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
-from reportlab.lib.units import inch
 from pydantic import BaseModel
 from typing import Dict, List
 import io
-import uuid
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+import traceback
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 
 class OfferLetterRequest(BaseModel):
     company_info: Dict
@@ -22,68 +21,61 @@ class OfferLetterRequest(BaseModel):
     joining_date: str
     compliance_result: Dict
 
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({"message": "Offer Letter API Live! POST to /generate"})
+
 @app.route('/generate', methods=['POST'])
 def generate_offer_letter():
-    data = request.json
-    validated = OfferLetterRequest(**data)
-    
-    filename = f"offer-letter-{validated.candidate_info['name'].replace(' ', '-')}-{validated.role_info['title'].replace(' ', '-')}.pdf"
-    pdf_buffer = io.BytesIO()
-    
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
-    story = []
-    
-    # Header
-    story.append(Paragraph(f"<b>{validated.company_info['name']}</b><br/>{validated.company_info.get('address', '')}<br/>Date: {datetime.now().strftime('%d %B %Y')}", styles['Heading1']))
-    story.append(Spacer(1, 20))
-    
-    # Salutation
-    story.append(Paragraph(f"Dear {validated.candidate_info['name']},", styles['Heading2']))
-    story.append(Spacer(1, 20))
-    
-    # Role Table
-    role_data = [
-        ['Position', validated.role_info['title']],
-        ['Department', validated.role_info.get('department', 'Engineering')],
-        ['Level', validated.role_info.get('level', 'Senior')],
-        ['Location', validated.role_info['location']]
-    ]
-    table = Table(role_data)
-    table.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.grey), ('GRID', (0,0), (-1,-1), 1, colors.black)]))
-    story.append(table)
-    story.append(Spacer(1, 20))
-    
-    # Compensation
-    ctc_lakhs = validated.compensation_info['total_ctc'] / 100000
-    story.append(Paragraph(f"<b>Total CTC: ₹{ctc_lakhs:.1f} Lakhs/annum</b>", styles['Heading3']))
-    story.append(Paragraph(f"Joining Date: {validated.joining_date}", styles['Normal']))
-    story.append(Spacer(1, 20))
-    
-    # Benefits
-    benefits = validated.compliance_result.get('benefits', [])
-    story.append(Paragraph("Benefits:", styles['Heading3']))
-    for benefit in benefits:
-        story.append(Paragraph(f"• {benefit}", styles['Normal']))
-    
-    # Footer
-    story.append(Spacer(1, 30))
-    story.append(Paragraph("Sincerely,<br/><b>HR Manager</b>", styles['Heading3']))
-    
-    doc.build(story)
-    pdf_buffer.seek(0)
-    
-    os.makedirs('static', exist_ok=True)
-    filepath = f'static/{filename}'
-    with open(filepath, 'wb') as f:
-        f.write(pdf_buffer.getvalue())
-    
-    download_url = f"https://{request.host}/static/{filename}"
-    return jsonify({"download_url": download_url})
+    try:
+        print("Received request:", request.json)
+        data = request.json
+        validated = OfferLetterRequest(**data)
+        
+        filename = f"offer-{uuid.uuid4().hex[:8]}.pdf"
+        pdf_buffer = io.BytesIO()
+        
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Header
+        story.append(Paragraph(f"<b>{validated.company_info['name']}</b>", styles['Heading1']))
+        story.append(Spacer(1, 20))
+        story.append(Paragraph(f"Dear {validated.candidate_info['name']},", styles['Heading2']))
+        
+        # Compensation
+        ctc_lakhs = validated.compensation_info['total_ctc'] / 100000
+        story.append(Paragraph(f"<b>Total CTC: ₹{ctc_lakhs:.1f} Lakhs</b>", styles['Heading3']))
+        story.append(Paragraph(f"Position: {validated.role_info['title']}", styles['Normal']))
+        story.append(Paragraph(f"Location: {validated.role_info['location']}", styles['Normal']))
+        story.append(Paragraph(f"Joining: {validated.joining_date}", styles['Normal']))
+        
+        doc.build(story)
+        pdf_buffer.seek(0)
+        
+        os.makedirs('static', exist_ok=True)
+        filepath = f'static/{filename}'
+        with open(filepath, 'wb') as f:
+            f.write(pdf_buffer.getvalue())
+        
+        download_url = f"https://{request.host}/static/{filename}"
+        
+        return jsonify({
+            "status": "success",
+            "download_url": download_url,
+            "filename": filename
+        })
+    except Exception as e:
+        print("Error:", traceback.format_exc())
+        return jsonify({"error": str(e)}), 400
 
 @app.route('/static/<filename>')
 def serve_pdf(filename):
-    return send_file(f'static/{filename}')
+    try:
+        return send_file(f'static/{filename}')
+    except:
+        return jsonify({"error": "File not found"}), 404
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
