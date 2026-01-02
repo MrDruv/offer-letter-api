@@ -7,8 +7,7 @@ import os
 app = Flask(__name__)
 
 
-OUTPUT_DIR = "static/offers"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR = "/tmp"
 
 @app.route('/')
 def home():
