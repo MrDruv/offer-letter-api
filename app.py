@@ -42,7 +42,7 @@ def generate_offer_letter():
         # Render HTML with Dynamic Placeholders
         rendered_html = render_template(
             'offer_letter.html',
-            company_name=company.get('name', 'Phronetic AI'), # Placeholder if name missing
+            company_name=company.get('name', '[company_name]'), # Placeholder if name missing
             name=candidate.get('name', '[Candidate Name]'),
             location=role.get('location', 'Remote'),
             title=role.get('title', '[Role]'),
