@@ -8,16 +8,15 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Writable directory for temporary PDF storage
+# Production-safe temporary directory
 OUTPUT_DIR = "/tmp"
 
-def cleanup_old_files(directory, max_age_seconds=600):
-    """Deletes files older than the specified time (default 1 hour)."""
+def cleanup_old_files(directory, max_age_seconds=3600):
+    """Automatically deletes PDFs older than 1 hour to save space."""
     try:
         now = time.time()
         for f in os.listdir(directory):
             path = os.path.join(directory, f)
-            # Only target files with our 'offer-' prefix to be safe
             if f.startswith("offer-") and os.stat(path).st_mtime < now - max_age_seconds:
                 if os.path.isfile(path):
                     os.remove(path)
@@ -26,8 +25,8 @@ def cleanup_old_files(directory, max_age_seconds=600):
 
 @app.route('/generate', methods=['POST'])
 def generate_offer_letter():
-    # 1. Trigger the cleanup timer logic
-    cleanup_old_files(OUTPUT_DIR) 
+    # Trigger timer-based cleanup
+    cleanup_old_files(OUTPUT_DIR)
 
     try:
         raw_data = request.get_json()
@@ -40,36 +39,39 @@ def generate_offer_letter():
         role = raw_data.get('role_info', {})
         comp = raw_data.get('compensation_info', {})
 
-        # 2. Render HTML with all data fields
+        # Render HTML with Dynamic Placeholders
         rendered_html = render_template(
             'offer_letter.html',
+            company_name=company.get('name', 'Phronetic AI'), # Placeholder if name missing
             name=candidate.get('name', '[Candidate Name]'),
             location=role.get('location', 'Remote'),
             title=role.get('title', '[Role]'),
-            department=role.get('department', 'Engineering'),
-            level=role.get('level', 'L1'),
-            salary=comp.get('total_ctc', 'TBD'),
-            base_salary=comp.get('base_salary', 'TBD'),
-            bonus=comp.get('bonus', 'N/A'),
+            department=role.get('department', 'General'),
+            level=role.get('level', 'N/A'),
             reporting_manager=role.get('reporting_manager', 'TBD'),
             employment_type=role.get('employment_type', 'Full-Time'),
+            total_ctc=comp.get('total_ctc', '0'),
+            salary=comp.get('base_salary', '0'),
+            bonus=comp.get('bonus', '0%'),
+            equity=comp.get('equity', 'None'),
+            benefits=raw_data.get('benefits', []),
             joining_date=raw_data.get('joining_date', 'TBD'),
             current_date=datetime.now().strftime("%B %d, %Y")
         )
 
-        # 3. Save PDF to /tmp
+        # Generate and save PDF
         filename = f"offer-{uuid.uuid4().hex[:8]}.pdf"
         filepath = os.path.join(OUTPUT_DIR, filename)
         HTML(string=rendered_html).write_pdf(target=filepath)
 
-        # 4. Construct Secure HTTPS Link
+        # Force HTTPS for the download link
         base_url = request.host_url.replace("http://", "https://").rstrip('/')
         download_url = f"{base_url}/download/{filename}"
 
         return jsonify({
             "status": "success",
             "download_url": download_url,
-            "message": "File will be available for 60 minutes."
+            "expires_in": "60 minutes"
         })
 
     except Exception as e:
@@ -80,5 +82,6 @@ def serve_pdf(filename):
     return send_from_directory(OUTPUT_DIR, filename, as_attachment=True)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    # For local development only; production uses Gunicorn
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
