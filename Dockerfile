@@ -1,15 +1,35 @@
+# Use official Python slim image
 FROM python:3.11-slim
 
-# Install ONLY the bare essentials for PDF rendering
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    weasyprint \
-    && apt-get clean \
+# Install system dependencies for WeasyPrint
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpango1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    libjpeg62-turbo-dev \
+    libpangocairo-1.0-0 \
+    libpango1.0-dev \
+    libxml2 \
+    libxml2-dev \
+    libxslt1.1 \
+    libxslt1-dev \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Set working directory inside container
 WORKDIR /app
-COPY . .
 
+# Copy requirements file and install Python deps
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Start command
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "app:app"]
+# Copy app code and templates
+COPY . .
+
+# Expose port 10000
+EXPOSE 10000
+
+# Run the Flask app
+CMD ["python", "app.py"]
