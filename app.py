@@ -11,7 +11,7 @@ app = Flask(__name__)
 # Production-safe temporary directory
 OUTPUT_DIR = "/tmp"
 
-def cleanup_old_files(directory, max_age_seconds=3600):
+def cleanup_old_files(directory, max_age_seconds=900):
     """Automatically deletes PDFs older than 1 hour to save space."""
     try:
         now = time.time()
