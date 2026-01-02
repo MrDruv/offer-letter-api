@@ -1,10 +1,15 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, url_for
 from weasyprint import HTML
 import io
 from datetime import datetime
 import os
 
 app = Flask(__name__)
+
+# Ensure a directory exists to save generated PDFs for downloading
+OUTPUT_DIR = "static/offers"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 @app.route('/')
 def home():
     return {
@@ -12,12 +17,15 @@ def home():
         "message": "Phronetic AI Offer Letter API is running.",
         "endpoint": "/generate-pdf (POST)"
     }
+
 @app.route('/generate-pdf', methods=['POST'])
 def generate_pdf():
     try:
         data = request.json
-        
-        # Mapping all professional fields requested
+        if not data:
+            return {"error": "Missing JSON payload"}, 400
+
+        # 1. Render HTML
         rendered_html = render_template(
             'offer_letter.html', 
             name=data.get('name', '[Candidate Name]'),
@@ -31,21 +39,33 @@ def generate_pdf():
             current_date=datetime.now().strftime("%B %d, %Y")
         )
         
-        # Generate PDF in memory
-        pdf_file = io.BytesIO()
-        HTML(string=rendered_html).write_pdf(target=pdf_file)
-        pdf_file.seek(0)
+        # 2. Define unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = data.get('name', 'Candidate').replace(" ", "_")
+        filename = f"Offer_{safe_name}_{timestamp}.pdf"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+
+        # 3. Save PDF to disk (so we can provide a link)
+        HTML(string=rendered_html).write_pdf(target=filepath)
         
-        filename = f"Offer_Letter_{data.get('name', 'Candidate')}.pdf".replace(" ", "_")
-        
-        return send_file(
-            pdf_file,
-            mimetype='application/pdf',
-            download_name=filename,
-            as_attachment=True
-        )
+        # 4. Return JSON with Link (Required for Phase 6 of your Orchestrator)
+        # Change 'your-render-url.onrender.com' to your actual Render domain
+        host = request.host_url.rstrip('/') 
+        download_url = f"{host}/{OUTPUT_DIR}/{filename}"
+
+        return {
+            "status": "success",
+            "message": f"Offer letter for {data.get('name')} generated.",
+            "download_url": download_url
+        }, 200
+
     except Exception as e:
         return {"error": str(e)}, 500
+
+# Route to allow the Agent/User to actually download the file
+@app.route('/static/offers/<filename>')
+def download_file(filename):
+    return send_file(os.path.join(OUTPUT_DIR, filename), as_attachment=True)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
